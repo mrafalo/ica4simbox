@@ -1,5 +1,6 @@
 
-from sklearn.metrics import mean_squared_error, r2_score, roc_auc_score
+#from sklearn.metrics import mean_squared_error, r2_score, roc_auc_score
+from sklearn import metrics
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from tensorflow import keras
@@ -17,6 +18,7 @@ import matplotlib.pyplot as plt
 import utils
 import utils.custom_logger as cl
 import work.data as d
+from datetime import datetime
 logger = cl.get_logger()
 
 with open(r'config.yaml') as file:
@@ -77,6 +79,15 @@ def compute_D(_y, _z, _beta):
     if _beta == -1:
         res = sum(np.log(_z/_y) - _y/_z - 1)
         return res
+
+def find_cutoff(target, predicted):
+    fpr, tpr, t = metrics.roc_curve(target, predicted)
+    tnr = 1 - fpr
+    g = np.sqrt(tpr*tnr)
+    pos = np.argmax(g)
+
+    return t[pos]    
+
     
 def compute_J(_y, _beta, _gausian_ratio, _cauchy_ratio=0):
 
@@ -129,7 +140,7 @@ def model_nn_custom(_layers, _sizes, _activations, _input_size, _last_activation
     
     return model
 
-def model_fiter(_model,_X_train, _y_train, _X_test, _y_test, _quality_measures, _loss,  _scale=False):
+def model_fiter(_model_name, _model,_X_train, _y_train, _X_test, _y_test, _quality_measures, _loss,  _scale=False):
     
     if _scale:
         sc = StandardScaler()
@@ -142,11 +153,11 @@ def model_fiter(_model,_X_train, _y_train, _X_test, _y_test, _quality_measures, 
     
     _model.fit(_X_train, _y_train, epochs=EPOCHS, batch_size=32, validation_data=(_X_test, _y_test),  callbacks=[es], verbose=False)
     
-    res_quality_measures, preds = model_preditor(_model, _X_test, _y_test, _quality_measures)
+    res_quality_measures, preds = model_preditor(_model_name, _model, _X_test, _y_test, _quality_measures)
     return res_quality_measures, preds
 
 
-def model_preditor(_model, _X_test, _y_test, _quality_measures):
+def model_preditor(_model_name, _model, _X_test, _y_test, _quality_measures):
     m1_predict = _model.predict(_X_test, verbose=False)
     
     if len(m1_predict.shape) > 1:
@@ -154,18 +165,52 @@ def model_preditor(_model, _X_test, _y_test, _quality_measures):
     
     res = {}
     if 'mse' in _quality_measures:
-        res['mse'] = mean_squared_error(_y_test, m1_predict)
+        res['mse'] = metrics.mean_squared_error(_y_test, m1_predict)
 
     if 'mape' in _quality_measures:
         res['mape'] = mape_score(_y_test, m1_predict)
         
     if 'r2' in _quality_measures:
-        res['r2'] = r2_score(_y_test, m1_predict)
+        res['r2'] = metrics.r2_score(_y_test, m1_predict)
 
     if 'auc' in _quality_measures:
-        res['auc'] = roc_auc_score(_y_test, m1_predict)
+        res['auc'] = metrics.roc_auc_score(_y_test, m1_predict)
    
+    if 'threshold' in _quality_measures:
+        res['threshold'] = find_cutoff(_y_test,m1_predict)
+
+    t = find_cutoff(_y_test,m1_predict)
+    m1_predict_binary = [1 if x >= t else 0 for x in m1_predict]
+    conf_matrix = np.round(metrics.confusion_matrix(_y_test, m1_predict_binary),2)
     
+
+    if 'sensitivity' in _quality_measures:
+        res['sensitivity'] = np.round(metrics.recall_score(_y_test, m1_predict_binary),2)
+   
+    if 'specificity' in _quality_measures:
+        res['specificity'] = np.round(conf_matrix[0, 0] / (conf_matrix[0, 0] + conf_matrix[0, 1]),2)
+    
+    if 'precision' in _quality_measures:
+        res['precision'] = np.round(metrics.precision_score(_y_test, m1_predict_binary),2)
+    
+    if 'f1' in _quality_measures:
+        res['f1'] = np.round(metrics.f1_score(_y_test, m1_predict_binary),2)
+ 
+
+    fpr, tpr, thresholds = metrics.roc_curve(_y_test, m1_predict)
+
+    roc_df = pd.DataFrame({
+        'False Positive Rate': fpr,
+        'True Positive Rate': tpr,
+        'Thresholds': thresholds
+    })
+    
+    
+    curr_date = datetime.now().strftime("%Y%m%d_%H%M")
+    roc_filename ='results/models/roc_' + _model_name + "_" + curr_date + ".csv"
+    res['roc_filename'] = roc_filename
+    roc_df.to_csv(roc_filename, sep=';')
+
     return res, m1_predict
 
   
@@ -184,7 +229,7 @@ def train_models(_X_train, _y_train, _X_test, _y_test, _quality_measures):
         activations = [ss for ss in c['activations'].split(',')]
         m1 = model_nn_custom(c['layers'], sizes, activations, len(_X_train.columns),  c['last_activation'])
         
-        res_quality_measures, preds = model_fiter(m1,_X_train, _y_train, _X_test, _y_test, _quality_measures, c['loss'], True)
+        res_quality_measures, preds = model_fiter(c['model_name'], m1,_X_train, _y_train, _X_test, _y_test, _quality_measures, c['loss'], True)
     
         res_quality_measures['model'] = c['model_name']
        
@@ -272,7 +317,6 @@ def compute_ica(_predictions_file, _quality_measures):
     measure_names = []    
     scenarios = [] 
     
-    
     ica_components = np.concatenate((x_full, y), axis=1)
     ica_columns = ["c_" + str(k+1) for k in range(0, number_of_components)]
     xp_colnames = []
@@ -280,13 +324,32 @@ def compute_ica(_predictions_file, _quality_measures):
     pos = 0
     for q in _quality_measures:
         for j in range(number_of_components):
+            
+            t = find_cutoff(y_actual, x.T[j])
+            m1_predict_binary = [1 if x >= t else 0 for x in x.T[j]]
+            conf_matrix = np.round(metrics.confusion_matrix(y_actual, m1_predict_binary),2)
+            
             if q == 'mse': 
                 measures[pos,j] = mse_score(y_actual, x.T[j])
+           
             if q == 'mape': 
                 measures[pos,j] = mape_score(y_actual, x.T[j])
+            
             if q == 'auc': 
-                measures[pos,j] = roc_auc_score(y_actual, x.T[j])
-                
+                measures[pos,j] = metrics.roc_auc_score(y_actual, x.T[j])
+           
+            if q == 'sensitivity':
+                measures[pos,j] = np.round(metrics.recall_score(y_actual, m1_predict_binary),2)
+           
+            if q == 'specificity':
+                measures[pos,j] = np.round(conf_matrix[0, 0] / (conf_matrix[0, 0] + conf_matrix[0, 1]),2)
+            
+            if q == 'precision':
+                measures[pos,j] = np.round(metrics.precision_score(y_actual, m1_predict_binary),2)
+            
+            if q == 'f1':
+                measures[pos,j] = np.round(metrics.f1_score(y_actual, m1_predict_binary),2)
+        
         scenarios.append('base')
         measure_names.append(q)
         pos = pos + 1
@@ -302,12 +365,29 @@ def compute_ica(_predictions_file, _quality_measures):
 
         for q in _quality_measures:
             for j in range(number_of_components):
+                t = find_cutoff(y_actual, xp[:,j])
+                m1_predict_binary = [1 if x >= t else 0 for x in xp[:,j]]
+                conf_matrix = np.round(metrics.confusion_matrix(y_actual, m1_predict_binary),2)
+            
                 if q == 'mse': 
                     measures[pos,j] = mse_score(y_actual, xp[:,j])
                 if q == 'mape': 
                     measures[pos,j] = mape_score(y_actual, xp[:,j])
                 if q == 'auc': 
-                    measures[pos,j] = roc_auc_score(y_actual, xp[:,j])
+                    measures[pos,j] = metrics.roc_auc_score(y_actual, xp[:,j])
+                    
+                if q == 'sensitivity':
+                    measures[pos,j] = np.round(metrics.recall_score(y_actual, m1_predict_binary),2)
+               
+                if q == 'specificity':
+                    measures[pos,j] = np.round(conf_matrix[0, 0] / (conf_matrix[0, 0] + conf_matrix[0, 1]),2)
+                
+                if q == 'precision':
+                    measures[pos,j] = np.round(metrics.precision_score(y_actual, m1_predict_binary),2)
+                
+                if q == 'f1':
+                    measures[pos,j] = np.round(metrics.f1_score(y_actual, m1_predict_binary),2)
+                
             
             scenarios.append('excluded_c_' + str(i+1))
             measure_names.append(q)

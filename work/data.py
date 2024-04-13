@@ -67,6 +67,7 @@ def get_data():
     logger.info("loading data: " + SIMBOX_DATA_FILE)
     
     df = load_data_file(SIMBOX_DATA_FILE)
+
     df.dropna(inplace=True) 
     
     X = df.drop(["target", "caller_id", "caller_imei"], axis=1)

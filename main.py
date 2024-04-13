@@ -1,9 +1,11 @@
 import os
-if os.path.exists("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.0/bin"):
-    os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.0/bin")
 
-if os.path.exists("C:/Program Files/NVIDIA/CUDNN/v8.9.7/bin"):
-    os.add_dll_directory("C:/Program Files/NVIDIA/CUDNN/v8.9.7/bin")
+if os.path.exists("C:/Program Files/NVIDIA/CUDA/v11.8/bin"):
+    os.add_dll_directory("C:/Program Files/NVIDIA/CUDA/v11.8/bin")
+
+if os.path.exists("C:/Program Files/NVIDIA/CUDNN/v8.6.0/bin"):
+    os.add_dll_directory("C:/Program Files/NVIDIA/CUDNN/v8.6.0/bin")
+
     
 import numpy as np
 import pandas as pd
@@ -33,48 +35,72 @@ with open(r'config.yaml') as file:
     QUALITY_MEASURES = cfg['QUALITY_MEASURES']
 
 
-def ica_results(_mask, _reduction_threshold, _quality_measures):
+
+def create_folders():
+    
+    os.makedirs('results/models', exist_ok=True)
+    os.makedirs('results/ica', exist_ok=True)
+    os.makedirs('results/divergence', exist_ok=True)
+    os.makedirs('results/model_predictions', exist_ok=True)
+    
+def ica_results(_mask, _quality_measures):
     
     _mask = "results/divergence/divergence*"
-    
-    div_files = glob.glob(_mask)
-    matched = 0
-    iters = 0
+    _quality_measures =  {'auc':'max', 'sensitivity':'max'}
 
+    div_files = glob.glob(_mask)
+    
+    iters = 0
+    matched = 0
+    res = pd.DataFrame(columns = ['divergence_filename', 'ica_filename', 'beta', 'gausian', 'uniform', 'cauchy', 'improvement_ratio' ] )
+    
+    #res = pd.concat([res, pd.DataFrame([res_quality_measures])], ignore_index=True)    
     for f in div_files:
         iters = iters + 1
-        
-      #  print('divergencefile:', f)
         df_div = pd.read_csv(f, sep=';')
         source_summary_filename = df_div.loc[:,'source_summary_filename'][0]
-       # print('source_summary_filename:', source_summary_filename)
-        
         component_columns = [x for x in list(df_div.columns) if x not in ('beta', 'gausian', 'uniform', 'cauchy', 'source_filename', 'source_summary_filename')]
             
         min_values_per_column = df_div[component_columns].min()
-
-        div_component = min_values_per_column.idxmin()
-        
-        #print("divergence component: ", div_component)
+        div_component_min = min_values_per_column.idxmin()
+        div_component_max = min_values_per_column.idxmax()
+        #print("div_min: ", div_component_min, "div_max: ", div_component_max)
 
         df_ica = pd.read_csv(source_summary_filename, sep=';')
         model_columns = [x for x in list(df_ica.columns) if x not in ('scenario', 'measure', 'source_filename')]
         number_of_components = len(model_columns)
         
         for q in _quality_measures:
+            
             base = df_ica.loc[(df_ica.scenario == 'base') & (df_ica['measure'] == q), model_columns].values
             components = df_ica.loc[(df_ica.scenario != 'base') & (df_ica['measure'] == q),model_columns].values
             
+            ica_measure_reductions = []
             for i in range(number_of_components):
-                measure_reduction_prc = (components[i,:] - base) / base
-           
-                if np.mean(measure_reduction_prc) < _reduction_threshold:
-                    ica_component = "c_"+str(i+1)
-                    if div_component == ica_component:
-                        matched = matched + 1
-                    
-    
-    print("result: " + str(matched) + "/" + str(iters) + " matches!")
+                measure_reduction = components[i,:] - base
+                
+                ica_measure_reductions.append(np.mean(measure_reduction))
+                ica_component = "c_"+str(i+1)
+                
+                
+                if  _quality_measures[q] == 'min':
+                    if np.mean(measure_reduction) < 0:
+                        print(q, ica_component, 'mean red:', str(np.round(np.mean(measure_reduction),3)), 'max red:', str(np.round(np.max(measure_reduction),3)))
+                        if div_component_max == ica_component:
+                          matched  = matched + 1
+                        
+                else:
+                    if np.mean(measure_reduction) > 0:
+                        print(q, ica_component, 'mean red:', str(np.round(np.mean(measure_reduction),3)), 'max red:', str(np.round(np.max(measure_reduction),3)))
+                        if div_component_max == ica_component:
+                          matched  = matched + 1
+        
+            ica_component_max = "c_"+str(np.argmax(ica_measure_reductions)+1)
+            ica_component_min = "c_"+str(np.argmin(ica_measure_reductions)+1)
+            #print("ica_min:", str(ica_component_min),"ica_max:", str(ica_component_max))
+
+        
+    print("result for: " + q + " " + str(matched) + "/" + str(len(div_files) * len(_quality_measures)) + " matches!")
 
 
             
@@ -82,8 +108,6 @@ def compute_ica_iterator(_mask, _dest_folder):
     #_mask = "results/model_predictions/models_predictions*"
    
     logger.info("ica compute start for mask " + _mask)
-    
-
     
     np.random.seed(m.SEED)
     tf.keras.utils.set_random_seed(m.SEED)
@@ -150,6 +174,8 @@ def model_training_iterator(_dest):
 
         logger.info("done... iteration: " + str(i+1) + "/" + str(ITERATIONS))
         
+        
+   
     stop = time.time()
     
     elapsed_sec = stop-start
@@ -158,11 +184,13 @@ def model_training_iterator(_dest):
 
 def main():
     start = time.time()
+    create_folders()
+    
     logger.info("starting...")
     model_cfg = pd.read_csv(MODEL_CONFIG_FILE, sep=";")
     model_cnt = model_cfg['model_name'].count()
     
-    #model_training_iterator("results/model_predictions")
+    model_training_iterator("results/model_predictions")
     compute_ica_iterator("results/model_predictions/models_predictions*", "results/ica/")
     compute_divergence_iterator("results/ica/ica_detail*", "results/divergence/", model_cnt)
     
@@ -174,17 +202,22 @@ def main():
 # importlib.reload(work.data)
 # importlib.reload(work.visualize)
 
-ica_results("divergence/divergence*", -0.01, ['auc'])
 
 #v.plot_heat_map_ica('results/test2\ica_mse_result_40_20240304_2210.csv', 'plots/heat6.png')
     
+#d.prepare_data()
+
 main()
 
+#ica_results("divergence/divergence*",  {'auc':'max', 'mse': 'min'})
+ 
 
 # from sklearn.tree import DecisionTreeClassifier
 # from sklearn import metrics
-# X_train, y_train, X_test, y_test = d.get_data();
 # from sklearn.tree import export_text
+
+# X_train, y_train, X_test, y_test = d.get_data();
+
 
 # # Create Decision Tree classifer object
 # clf = DecisionTreeClassifier()
@@ -198,3 +231,5 @@ main()
 # tree_rules = export_text(clf, feature_names=list(X_train.columns))
 
 # print(tree_rules)
+
+

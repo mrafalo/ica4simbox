@@ -1,4 +1,4 @@
 .spyproject
 config.yaml
-results
+results*
 data
