@@ -350,6 +350,20 @@ def compute_ica(_predictions_file, _quality_measures):
             if q == 'f1':
                 measures[pos,j] = np.round(metrics.f1_score(y_actual, m1_predict_binary),2)
         
+            fpr, tpr, thresholds = metrics.roc_curve(y_actual, x.T[j])
+
+            roc_df = pd.DataFrame({
+                'False Positive Rate': fpr,
+                'True Positive Rate': tpr,
+                'Thresholds': thresholds
+            })
+            
+            
+            curr_date = datetime.now().strftime("%Y%m%d_%H%M")
+            roc_filename ='results/models/ica_roc_c_' + str(j+1) + "_" + curr_date + ".csv"
+            roc_df.to_csv(roc_filename, sep=';')
+        
+
         scenarios.append('base')
         measure_names.append(q)
         pos = pos + 1

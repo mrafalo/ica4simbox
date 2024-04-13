@@ -35,7 +35,35 @@ with open(r'config.yaml') as file:
     ITERATIONS = cfg['ITERATIONS']
     MODEL_CONFIG_FILE = cfg['MODEL_CONFIG_FILE']
 
-  
+
+
+
+def auc_plot_from_files(_f1, _f2):
+    _f1 = 'results/models/roc_m10_20240413_1443.csv'
+    _f2 = 'results/models/ica_roc_c_8_20240413_1443.csv'
+    df1 = pd.read_csv(_f1, sep=';')
+    df2= pd.read_csv(_f2, sep=';')
+
+    plt.figure(figsize=(8, 6))
+    
+    # Plot ROC curve for df1
+    plt.plot(df1['False Positive Rate'], df1['True Positive Rate'], label='Base model (m10)')
+    
+    # Plot ROC curve for df2
+    plt.plot(df2['False Positive Rate'], df2['True Positive Rate'], label='Model after ICA (c8)')
+    
+    # Plot a diagonal dashed line which represents a 'no-skill' classifier (AUC = 0.5)
+    plt.plot([0, 1], [0, 1], 'k--')
+    
+    # Customizing the plot
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc="lower right")
+    
+    # Show the plot
+    plt.show()
+
+
 def plot_ts_ica(_filename):
     
     _filename = "results/test2\ica_detail_result_11_20240304_2210.csv"

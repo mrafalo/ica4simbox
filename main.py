@@ -24,6 +24,7 @@ import glob
 import time
 from collections import ChainMap
 logger = cl.get_logger()
+from sklearn import metrics
 
 with open(r'config.yaml') as file:
     cfg = yaml.load(file, Loader=yaml.FullLoader)
@@ -103,7 +104,13 @@ def ica_results(_mask, _quality_measures):
     print("result for: " + q + " " + str(matched) + "/" + str(len(div_files) * len(_quality_measures)) + " matches!")
 
 
-            
+    res_mask = "results/models/*.csv"
+    div_files = glob.glob(res_mask)
+    for f in div_files:
+        df = pd.read_csv(f, sep=';')
+        auc_df = metrics.auc(df['False Positive Rate'], df['True Positive Rate'])
+        print(f, round(auc_df,3))
+        
 def compute_ica_iterator(_mask, _dest_folder):
     #_mask = "results/model_predictions/models_predictions*"
    
