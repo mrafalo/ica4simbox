@@ -15,14 +15,12 @@ with open(r'config.yaml') as file:
     SEED = cfg['SEED']
 
 def load_ica_results(_mask):
-    
-    #_mask = "ica_result*"
+
     path_pattern = 'results/' + _mask
 
     csv_files = glob.glob(path_pattern)
     df = pd.concat((pd.read_csv(file, sep=';') for file in csv_files), ignore_index=True)
-    #df.to_csv('results/tmp.csv', sep=';')
-    #df.scenario.unique()   
+
     
     return df
 
@@ -38,15 +36,6 @@ def prepare_data():
         'target': 'max'}).reset_index()
     
     result1.columns = ['caller_id', 'caller_imei', 'bts_cnt', 'outgoing_cnt', 'mean_duration_sec', 'roaming_cnt', 'target']
-    
-    # result2 = df.groupby(['caller_id','caller_imei']).agg(
-    #     company_1=('called_operator_id', lambda x: (x == 'company_1').sum()),
-    #     company_2=('called_operator_id', lambda x: (x == 'company_2').sum()),
-    #     company_3=('called_operator_id', lambda x: (x == 'company_3').sum()),
-    #     company_4=('called_operator_id', lambda x: (x == 'company_4').sum())
-    #     ).reset_index()
-        
-    # result2.columns = ['caller_id', 'caller_imei', 'company_1_cnt', 'company_2_cnt', 'company_3_cnt', 'company_4_cnt']
     
     result3 = df.groupby(['called_id']).agg({'caller_id': 'count'}).reset_index()   
     result3.columns = ['caller_id', 'incoming_cnt']
@@ -93,12 +82,8 @@ def get_data():
 
 def load_data_file(_data_file):
     df = pd.read_csv(_data_file, sep=';')
-    #df = df.reset_index()
     
     return df
-
-    
-#prepare_data()
 
 
 

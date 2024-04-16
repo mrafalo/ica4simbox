@@ -46,8 +46,8 @@ def create_folders():
     
 def ica_results(_mask, _quality_measures):
     
-    _mask = "results/divergence/divergence*"
-    _quality_measures =  {'auc':'max', 'sensitivity':'max'}
+    # _mask = "results/divergence/divergence*"
+    # _quality_measures =  {'auc':'max'}
 
     div_files = glob.glob(_mask)
     
@@ -55,18 +55,23 @@ def ica_results(_mask, _quality_measures):
     matched = 0
     res = pd.DataFrame(columns = ['divergence_filename', 'ica_filename', 'beta', 'gausian', 'uniform', 'cauchy', 'improvement_ratio' ] )
     
-    #res = pd.concat([res, pd.DataFrame([res_quality_measures])], ignore_index=True)    
+    t = 0
+   
     for f in div_files:
         iters = iters + 1
         df_div = pd.read_csv(f, sep=';')
+        
         source_summary_filename = df_div.loc[:,'source_summary_filename'][0]
         component_columns = [x for x in list(df_div.columns) if x not in ('beta', 'gausian', 'uniform', 'cauchy', 'source_filename', 'source_summary_filename')]
             
         min_values_per_column = df_div[component_columns].min()
         div_component_min = min_values_per_column.idxmin()
-        div_component_max = min_values_per_column.idxmax()
-        #print("div_min: ", div_component_min, "div_max: ", div_component_max)
-
+    
+        beta = df_div.loc[df_div[div_component_min]==np.min(min_values_per_column),'beta'].values[0]
+        gausian = df_div.loc[df_div[div_component_min]==np.min(min_values_per_column),'gausian'].values[0]
+        uniform = df_div.loc[df_div[div_component_min]==np.min(min_values_per_column),'uniform'].values[0]
+        cauchy = df_div.loc[df_div[div_component_min]==np.min(min_values_per_column),'cauchy'].values[0]
+        
         df_ica = pd.read_csv(source_summary_filename, sep=';')
         model_columns = [x for x in list(df_ica.columns) if x not in ('scenario', 'measure', 'source_filename')]
         number_of_components = len(model_columns)
@@ -79,41 +84,38 @@ def ica_results(_mask, _quality_measures):
             ica_measure_reductions = []
             for i in range(number_of_components):
                 measure_reduction = components[i,:] - base
-                
+     
+                improvement_cnt = np.sum(measure_reduction>0)
+
                 ica_measure_reductions.append(np.mean(measure_reduction))
                 ica_component = "c_"+str(i+1)
                 
                 
                 if  _quality_measures[q] == 'min':
-                    if np.mean(measure_reduction) < 0:
-                        print(q, ica_component, 'mean red:', str(np.round(np.mean(measure_reduction),3)), 'max red:', str(np.round(np.max(measure_reduction),3)))
-                        if div_component_max == ica_component:
+                    if np.mean(measure_reduction) < t:
+                        print(beta, q, ica_component, 'mean red:', str(np.round(np.mean(measure_reduction),3)), 'max red:', str(np.round(np.max(measure_reduction),3)))
+                        
+                       
+                        if div_component_min == ica_component:
                           matched  = matched + 1
                         
                 else:
-                    if np.mean(measure_reduction) > 0:
-                        print(q, ica_component, 'mean red:', str(np.round(np.mean(measure_reduction),3)), 'max red:', str(np.round(np.max(measure_reduction),3)))
-                        if div_component_max == ica_component:
+                    if np.max(measure_reduction) > t:
+
+                        if div_component_min == ica_component:
                           matched  = matched + 1
+                          if beta>0:
+                              print(round(gausian,2), round(uniform,2), round(cauchy,2), beta, div_component_min, np.round(np.max(measure_reduction),3),improvement_cnt )
         
             ica_component_max = "c_"+str(np.argmax(ica_measure_reductions)+1)
             ica_component_min = "c_"+str(np.argmin(ica_measure_reductions)+1)
-            #print("ica_min:", str(ica_component_min),"ica_max:", str(ica_component_max))
 
-        
     print("result for: " + q + " " + str(matched) + "/" + str(len(div_files) * len(_quality_measures)) + " matches!")
 
 
-    res_mask = "results/models/*.csv"
-    div_files = glob.glob(res_mask)
-    for f in div_files:
-        df = pd.read_csv(f, sep=';')
-        auc_df = metrics.auc(df['False Positive Rate'], df['True Positive Rate'])
-        print(f, round(auc_df,3))
-        
+            
 def compute_ica_iterator(_mask, _dest_folder):
-    #_mask = "results/model_predictions/models_predictions*"
-   
+
     logger.info("ica compute start for mask " + _mask)
     
     np.random.seed(m.SEED)
@@ -135,8 +137,7 @@ def compute_ica_iterator(_mask, _dest_folder):
     logger.info("ica compute finished; all OK!")
 
 def compute_divergence_iterator(_mask, _dest_folder, _number_of_components):
-    # _mask = "results/test2/ica_detail*"
-    
+  
     logger.info("divergence compute start for mask " + _mask)
 
     list_files = glob.glob(_mask )
@@ -178,11 +179,9 @@ def model_training_iterator(_dest):
         res_preds.to_csv(predictions_file, mode='w', header=True, index=False, sep=";")
         res_summary.to_csv(_dest + "/models_summary_" + str(i+1) + "_" + curr_date + ".csv", mode='w', header=True, index=False, sep=";")
         
-
         logger.info("done... iteration: " + str(i+1) + "/" + str(ITERATIONS))
         
         
-   
     stop = time.time()
     
     elapsed_sec = stop-start
@@ -197,46 +196,15 @@ def main():
     model_cfg = pd.read_csv(MODEL_CONFIG_FILE, sep=";")
     model_cnt = model_cfg['model_name'].count()
     
-    model_training_iterator("results/model_predictions")
-    compute_ica_iterator("results/model_predictions/models_predictions*", "results/ica/")
+    #model_training_iterator("results/model_predictions")
+    #compute_ica_iterator("results/model_predictions/models_predictions*", "results/ica/")
     compute_divergence_iterator("results/ica/ica_detail*", "results/divergence/", model_cnt)
     
     stop = time.time()
     elapsed_sec = stop-start
     logger.info("training finished!, elapsed: " + str(elapsed_sec//60) + " minutes")
         
-# importlib.reload(work.models)
-# importlib.reload(work.data)
-# importlib.reload(work.visualize)
 
-
-#v.plot_heat_map_ica('results/test2\ica_mse_result_40_20240304_2210.csv', 'plots/heat6.png')
-    
 #d.prepare_data()
 
 main()
-
-#ica_results("divergence/divergence*",  {'auc':'max', 'mse': 'min'})
- 
-
-# from sklearn.tree import DecisionTreeClassifier
-# from sklearn import metrics
-# from sklearn.tree import export_text
-
-# X_train, y_train, X_test, y_test = d.get_data();
-
-
-# # Create Decision Tree classifer object
-# clf = DecisionTreeClassifier()
-
-# # Train Decision Tree Classifer
-# clf = clf.fit(X_train,y_train)
-
-# #Predict the response for test dataset
-# y_pred = clf.predict(X_test)
-# print("Accuracy:",metrics.accuracy_score(y_test, y_pred))
-# tree_rules = export_text(clf, feature_names=list(X_train.columns))
-
-# print(tree_rules)
-
-

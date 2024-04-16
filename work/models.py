@@ -19,6 +19,8 @@ import utils
 import utils.custom_logger as cl
 import work.data as d
 from datetime import datetime
+import random
+
 logger = cl.get_logger()
 
 with open(r'config.yaml') as file:
@@ -102,15 +104,13 @@ def compute_J(_y, _beta, _gausian_ratio, _cauchy_ratio=0):
     cauchy_part = b_cauchy * np.log(compute_D(_y, cauchy(n), _beta) / compute_D(cauchy(n), _y, _beta))
 
     res = pow(pow(gausian_part,2) + pow(uniform_part,2) + pow(cauchy_part,2), 0.5)
-    #res =  min(gausian_part,uniform_part, cauchy_part)
+
     return res
     
     
 def ica_model(_X):
     ica2 = FastICA()
     y = ica2.fit_transform(_X) 
-    #w = ica.mixing_
-    #w = ica.components_
     return y
 
 def mape_score(_y_test, _y_pred):
@@ -269,23 +269,22 @@ def compute_mse(_number_of_components, _y_actual, _model_results, _components_re
     
 def compute_divergence(_filename, _number_of_components):
     
-    # _filename = 'results/ica/ica_detail_result_1_20240403_0950.csv'
-    # _number_of_components= 5
-    
     df = pd.read_csv(_filename, sep=';')
     components_results = df.iloc[:, 1 + _number_of_components:1 + 2*_number_of_components].values
     
     res_detail = pd.DataFrame(columns = list(['beta', 'gausian', 'uniform', 'cauchy']) + list(["c_" + str(k+1) for k in range(_number_of_components)]))    
 
+
     for b in [0, 1, 2, 3]:
-        for r in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]:
+        for g in np.arange(0, 0.99, 0.01):
+        #for r in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]:
+            c = round(random.uniform(0, 0.1),2)
             vals = {}
             for i in range(_number_of_components):
-                J = compute_J(components_results[:, i], b, r, 1)
+                J = compute_J(components_results[:, i], b, g, c)
                 vals['c_' + str(i+1)] = J
 
-            
-            new_row = {'beta': b, 'gausian': r, 'uniform': 1-r, 'cauchy': 0}
+            new_row = {'beta': b, 'gausian': g, 'uniform': 1-g-c, 'cauchy': c}
             new_row = {**new_row, **vals}
             new_row = pd.DataFrame(new_row, index=[0])
             res_detail = pd.concat([res_detail, new_row])
@@ -295,9 +294,6 @@ def compute_divergence(_filename, _number_of_components):
     
 def compute_ica(_predictions_file, _quality_measures):
    
-    # _predictions_file = "results\model_predictions\models_predictions_1_20240402_1227.csv"
-    # _quality_measures = ['mse', 'auc']
-    
     df = pd.read_csv(_predictions_file, sep=';')
     
     y_actual = df['y_actual'].values
@@ -305,8 +301,7 @@ def compute_ica(_predictions_file, _quality_measures):
     x_full = df.values
     
     number_of_components = x.shape[1]
-    number_of_cases = x.shape[0]
- 
+
     ica = FastICA()
     
     y = ica.fit_transform(x) 
@@ -421,5 +416,5 @@ def compute_ica(_predictions_file, _quality_measures):
 
     res_quality_measures = res_quality_measures.sort_values(by=['measure', 'scenario'], ascending=[True, True])
     
-    #res_quality_measures.to_csv('tmp.csv', sep=';')
+
     return res_quality_measures, res_ica
